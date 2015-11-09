@@ -1,11 +1,27 @@
 301RedirectModule
 =================
 
-An improved version of the Sitecore 301 redirect module. Original version was created by Chris Castle, available at [http://trac.sitecore.net/301RedirectModule](http://trac.sitecore.net/301RedirectModule)
+An improved version of the Sitecore 301 redirect module. Original version was created by Chris Castle, available at [https://marketplace.sitecore.net/en/Modules/301_Redirect_module.aspx](https://marketplace.sitecore.net/en/Modules/301_Redirect_module.aspx)
 
-Improvements by [Chris Adams](http://www.cadams.com.au/), [Max Slabyak](https://github.com/maxslabyak) and [Mark Wiseman](https://github.com/mawiseman)
+Improvements by [Martin English](http://sitecoreart.martinrayenglish.com/), [Chris Adams](http://www.cadams.com.au/), [Max Slabyak](https://github.com/maxslabyak) and [Mark Wiseman](https://github.com/mawiseman)
 
 ## Changelog ##
+**Version 2.0 contributed by [Martin English](http://sitecoreart.martinrayenglish.com/):**
+
+* Ability to handle redirects for non-Sitecore hostnames
+ * New setting for pipe separated list of non-Sitecore hostnames that are bound in IIS that you want to allow redirects from. Eg. "mydomain.org|www.myotherdomain.org"
+ * New setting to redirect external host names where there is no match found, to a specific URL
+* Ability to redirect to relative destination paths. Eg:
+ * Requested URL: http://www.mydomain.org/nice/blog/2015/12/1
+ * Regex match for "^/nice/blog/?" 
+ * Redirect to http://nice-blog.myotherdomain.com/ set
+ * Redirect will go to http://nice-blog.myotherdomain.com/nice/blog/2015/12/1
+* Geolocation Redirects using MaxMind
+ * Ability to use MaxMind's GeoIP2 Database or GeoIP2 Precision Services to determine visitor location, and redirect to specific URLs if a location match based on ISO Country Code or Continent code is found.
+* Caching layer for Geolocation Redirects
+ * This was introduced to improve performance of Geolocation lookups
+
+
 **Version 1.4:**
 
 * Added the ability to select HTTP status code (301, 302)
@@ -38,11 +54,11 @@ Improvements by [Chris Adams](http://www.cadams.com.au/), [Max Slabyak](https://
 * **Case-insensitive matching** of URLs
 * Ability to process redirects for specific items which already exist. Useful if you have an existing item, but need to change part of a query string. Beware of the performance implications as the list of items is examined against every request.
 
-![Redirecting when items already exist](http://blog.igloo.com.au/wp-content/uploads/2012/08/AlwaysRedirect.png)
+* Redirecting when items already exist
 
-* Match **the path and query** of a request, ignoring the hostname portion of the user's request. Useful if you need your match to work in multiple environments but don't want to list them in the redirect item.
+ * Match **the path and query** of a request, ignoring the hostname portion of the user's request. Useful if you need your match to work in multiple environments but don't want to list them in the redirect item.
 
-![Redirecting and modifying the query string](http://blog.igloo.com.au/wp-content/uploads/2012/08/SiteAreaRedirect.png)
+* Redirecting and modifying the query string
 
 The regular expression above in the "Requested Expression" field will match any request where the path portion of the URL begins with /old-site-area. For instance, a request to http://mysite.com/old-site-area/homepage will be processed by this redirect. As a side-effect, the path portion under /old-site-area ("/homepage") will be saved for later in a capture group called Path. This is the "^/old-site-area(?<Path>/.*?)?" portion of the regular expression.
 

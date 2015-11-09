@@ -1,15 +1,18 @@
 ﻿using System.Web;
-using Sitecore;
-using Sitecore.Data;
 using System;
-using Sitecore.Data.Items;
 using System.Text.RegularExpressions;
 using System.Linq;
 using System.Collections.Generic;
+
+using Sitecore;
+using Sitecore.Data;
+using Sitecore.Data.Items;
 using Sitecore.Links;
 using Sitecore.Pipelines.HttpRequest;
 using Sitecore.Diagnostics;
 using Sitecore.Resources.Media;
+
+using SharedSource.RedirectModule.MaxMind;
 
 namespace SharedSource.RedirectModule
 {
@@ -18,6 +21,15 @@ namespace SharedSource.RedirectModule
     /// </summary>
     public class Redirects : HttpRequestProcessor
     {
+        //Get list of allowed external non-Sitecore hostnames that are bound in IIS that you want to allow redirects from
+        public static List<string> AllowedExternalHosts
+        {
+            get
+            {
+                var externalHosts = Sitecore.Configuration.Settings.GetSetting(Constants.Settings.ExternalHosts).Split('|');
+                return externalHosts.ToList();
+            }
+        }
         /// <summary>
         ///  The main method for the processor.  It simply overrides the Process method.
         /// </summary>
@@ -26,12 +38,14 @@ namespace SharedSource.RedirectModule
             // This processer is added to the pipeline after the Sitecore Item Resolver.  We want to skip everything if the item resolved successfully.
             // Also, skip processing for the visitor identification items related to DMS.
             Assert.ArgumentNotNull(args, "args");
-            if ((Context.Item == null || AllowRedirectsOnFoundItem(Context.Database)) && args.LocalPath != Constants.Paths.VisitorIdentification && Context.Database != null)
+            var allowExternalHost = AllowExternalHost(HttpContext.Current.Request.Url.Host);
+            if ((allowExternalHost || Context.Item == null || AllowRedirectsOnFoundItem(Context.Database)) && args.LocalPath != Constants.Paths.VisitorIdentification && Context.Database != null)
             {
                 // Grab the actual requested path for use in both the item and pattern match sections.
-                var requestedUrl = HttpContext.Current.Request.Url.ToString();
+                var requestedUrl = HttpContext.Current.Request.Url.ToString().TrimEnd('/');
                 var requestedPath = HttpContext.Current.Request.Url.AbsolutePath;
                 var requestedPathAndQuery = HttpContext.Current.Request.Url.PathAndQuery;
+                var currentIpAddress = GetClientIPAddress();
                 var db = Context.Database;
 
                 // First, we check for exact matches because those take priority over pattern matches.
@@ -40,11 +54,15 @@ namespace SharedSource.RedirectModule
                     // Loop through the exact match entries to look for a match.
                     foreach (Item possibleRedirect in GetRedirects(db, Constants.Templates.RedirectUrl, Constants.Templates.VersionedRedirectUrl, Sitecore.Configuration.Settings.GetSetting(Constants.Settings.QueryExactMatch)))
                     {
-                        if (requestedUrl.Equals(possibleRedirect[Constants.Fields.RequestedUrl], StringComparison.OrdinalIgnoreCase) ||
-                             requestedPath.Equals(possibleRedirect[Constants.Fields.RequestedUrl], StringComparison.OrdinalIgnoreCase))
+                        var trimmedItemRequestedUrl = possibleRedirect[Constants.Fields.RequestedUrl].TrimEnd('/');
+
+                        if (requestedUrl.Equals(trimmedItemRequestedUrl, StringComparison.OrdinalIgnoreCase) ||
+                            requestedPath.Equals(trimmedItemRequestedUrl, StringComparison.OrdinalIgnoreCase))
                         {
                             var redirectToItemId = possibleRedirect.Fields[Constants.Fields.RedirectToItem];
                             var redirectToUrl = possibleRedirect.Fields[Constants.Fields.RedirectToUrl];
+                            var redirectFromCode = possibleRedirect.Fields[Constants.Fields.RedirectCode];
+                            var maxMind = Sitecore.Configuration.Settings.GetSetting(Constants.Settings.MaxMindType);
 
                             if (redirectToItemId.HasValue && !string.IsNullOrEmpty(redirectToItemId.ToString()))
                             {
@@ -54,14 +72,96 @@ namespace SharedSource.RedirectModule
                                 {
                                     var responseStatus = GetResponseStatus(possibleRedirect);
 
-                                    SendResponse(redirectToItem, HttpContext.Current.Request.Url.Query, responseStatus, args);
+                                    switch (maxMind)
+                                    {
+                                        case "0":
+                                            {
+                                                SendResponse(redirectToItem, HttpContext.Current.Request.Url.Query, responseStatus, args);
+                                                break;
+                                            }
+                                        case "1":
+                                            {
+                                                if (!redirectFromCode.HasValue || string.IsNullOrEmpty(redirectFromCode.ToString()))
+                                                {
+                                                    goto case "0";
+                                                }
+
+                                                if (redirectFromCode.HasValue && !string.IsNullOrEmpty(redirectFromCode.ToString()) &&
+                                                    HaveCodeMatch(redirectFromCode.Value, DatabaseHelper.GetCodeFromIP(currentIpAddress)))
+                                                {
+                                                    goto case "0";
+                                                }
+
+                                                break;
+                                            }
+                                        case "2":
+                                            {
+                                                if (!redirectFromCode.HasValue || string.IsNullOrEmpty(redirectFromCode.ToString()))
+                                                {
+                                                    goto case "0";
+                                                }
+
+                                                if (redirectFromCode.HasValue && !string.IsNullOrEmpty(redirectFromCode.ToString()) &&
+                                                    HaveCodeMatch(redirectFromCode.Value, WebServiceHelper.GetCodeFromIP(currentIpAddress)))
+                                                {
+                                                    goto case "0";
+                                                }
+
+                                                break;
+                                            }
+                                        default:
+                                            {
+                                                goto case "0";
+                                            }
+                                    }
                                 }
                             }
                             else if (redirectToUrl.HasValue && !string.IsNullOrEmpty(redirectToUrl.ToString()))
                             {
                                 var responseStatus = GetResponseStatus(possibleRedirect);
 
-                                SendResponse(redirectToUrl.Value, HttpContext.Current.Request.Url.Query, responseStatus, args);
+                                switch (maxMind)
+                                {
+                                    case "0":
+                                        {
+                                            SendResponse(redirectToUrl.Value, HttpContext.Current.Request.Url.Query, responseStatus, args);
+                                            break;
+                                        }
+                                    case "1":
+                                        {
+                                            if (!redirectFromCode.HasValue || string.IsNullOrEmpty(redirectFromCode.ToString()))
+                                            {
+                                                goto case "0";
+                                            }
+
+                                            if (redirectFromCode.HasValue && !string.IsNullOrEmpty(redirectFromCode.ToString()) &&
+                                                HaveCodeMatch(redirectFromCode.Value, DatabaseHelper.GetCodeFromIP(currentIpAddress)))
+                                            {
+                                                goto case "0";
+                                            }
+
+                                            break;
+                                        }
+                                    case "2":
+                                        {
+                                            if (!redirectFromCode.HasValue || string.IsNullOrEmpty(redirectFromCode.ToString()))
+                                            {
+                                                goto case "0";
+                                            }
+
+                                            if (redirectFromCode.HasValue && !string.IsNullOrEmpty(redirectFromCode.ToString()) &&
+                                                HaveCodeMatch(redirectFromCode.Value, DatabaseHelper.GetCodeFromIP(currentIpAddress)))
+                                            {
+                                                goto case "0";
+                                            }
+
+                                            break;
+                                        }
+                                    default:
+                                        {
+                                            goto case "0";
+                                        }
+                                }
                             }
                         }
                     }
@@ -74,16 +174,34 @@ namespace SharedSource.RedirectModule
                     foreach (Item possibleRedirectPattern in GetRedirects(db, Constants.Templates.RedirectPattern, Constants.Templates.VersionedRedirectPattern, Sitecore.Configuration.Settings.GetSetting(Constants.Settings.QueryExactMatch)))
                     {
                         var redirectPath = string.Empty;
-                        if (Regex.IsMatch(requestedUrl, possibleRedirectPattern[Constants.Fields.RequestedExpression], RegexOptions.IgnoreCase))
+                        var relativePathMatch = false;
+
+                        if (Regex.IsMatch(requestedUrl, possibleRedirectPattern[Constants.Fields.RequestedExpression],
+                            RegexOptions.IgnoreCase))
                         {
-                            redirectPath = Regex.Replace(requestedUrl, possibleRedirectPattern[Constants.Fields.RequestedExpression],
-                                                         possibleRedirectPattern[Constants.Fields.SourceItem], RegexOptions.IgnoreCase);
+                            redirectPath = Regex.Replace(requestedUrl,
+                                possibleRedirectPattern[Constants.Fields.RequestedExpression],
+                                possibleRedirectPattern[Constants.Fields.SourceItem], RegexOptions.IgnoreCase);
                         }
-                        else if (Regex.IsMatch(requestedPathAndQuery, possibleRedirectPattern[Constants.Fields.RequestedExpression], RegexOptions.IgnoreCase))
+                        else if (Regex.IsMatch(requestedPathAndQuery,
+                            possibleRedirectPattern[Constants.Fields.RequestedExpression], RegexOptions.IgnoreCase))
                         {
-                            redirectPath = Regex.Replace(requestedPathAndQuery,
-                                                         possibleRedirectPattern[Constants.Fields.RequestedExpression],
-                                                         possibleRedirectPattern[Constants.Fields.SourceItem], RegexOptions.IgnoreCase);
+                            if (!string.IsNullOrEmpty(possibleRedirectPattern[Constants.Fields.SourceItem]))
+                            {
+                                redirectPath = Regex.Replace(requestedPathAndQuery,
+                                    possibleRedirectPattern[Constants.Fields.RequestedExpression],
+                                    possibleRedirectPattern[Constants.Fields.SourceItem], RegexOptions.IgnoreCase);
+                            }
+                            else if (
+                                !string.IsNullOrEmpty(
+                                    possibleRedirectPattern[Constants.Fields.RelativeDestinationPath]))
+                            {
+                                redirectPath = Regex.Replace(requestedPathAndQuery,
+                                    possibleRedirectPattern[Constants.Fields.RequestedExpression],
+                                    possibleRedirectPattern[Constants.Fields.RelativeDestinationPath],
+                                    RegexOptions.IgnoreCase);
+                                relativePathMatch = true;
+                            }
                         }
                         if (string.IsNullOrEmpty(redirectPath)) continue;
 
@@ -97,15 +215,27 @@ namespace SharedSource.RedirectModule
                             path = MainUtil.DecodeName(path);
                         }
                         var redirectToItem = db.GetItem(path);
+                        var responseStatus = GetResponseStatus(redirectToItem);
                         if (redirectToItem != null)
                         {
                             var query = pathAndQuery.Length > 1 ? "?" + pathAndQuery[1] : "";
-                            var responseStatus = GetResponseStatus(possibleRedirectPattern);
 
                             SendResponse(redirectToItem, query, responseStatus, args);
                         }
+                        else if (relativePathMatch)
+                        {
+                            var query = pathAndQuery.Length > 1 ? "?" + pathAndQuery[1] : "";
+                            SendResponse(redirectPath, query, responseStatus, args);
+                        }
                     }
                 }
+                if (!allowExternalHost)
+                {
+                    return;
+                }
+                //Couldn't find a mapping based on settings. For non-Sitecore hostnames
+                var notFoundUrl = Sitecore.Configuration.Settings.GetSetting(Constants.Settings.ExternalHostsNotFoundUrl);
+                SendTempResponse(notFoundUrl, HttpContext.Current.Request.Url.Query, args);
             }
         }
 
@@ -187,6 +317,14 @@ namespace SharedSource.RedirectModule
             args.Context.Response.End();
         }
 
+        private static void SendTempResponse(string redirectToUrl, string queryString, HttpRequestArgs args)
+        {
+            args.Context.Response.Status = "302 Moved Temporarily";
+            args.Context.Response.StatusCode = 302;
+            args.Context.Response.AddHeader("Location", redirectToUrl + queryString);
+            args.Context.Response.End();
+        }
+
         private static string GetRedirectToUrl(Item redirectToItem)
         {
             if (redirectToItem.Paths.Path.StartsWith(Constants.Paths.MediaLibrary))
@@ -225,6 +363,33 @@ namespace SharedSource.RedirectModule
             }
 
             return result;
+        }
+
+        private static bool AllowExternalHost(string externalHost)
+        {
+            return AllowedExternalHosts.FindAll(h => h.IndexOf(externalHost, StringComparison.InvariantCultureIgnoreCase) >= 0).Any();
+        }
+
+        private static bool HaveCodeMatch(string codeToMatch, KeyValuePair<string, string> codeResponse)
+        {
+            if (!codeResponse.Equals(default(KeyValuePair<string, string>)))
+            {
+                return codeResponse.Key.Equals(codeToMatch, StringComparison.InvariantCultureIgnoreCase) || codeResponse.Value.Equals(codeToMatch, StringComparison.InvariantCultureIgnoreCase);
+            }
+
+            return false;
+        }
+
+        private static string GetClientIPAddress()
+        {
+            var ip = HttpContext.Current.Request.ServerVariables["HTTP_X_FORWARDED_FOR"];
+
+            if (string.IsNullOrEmpty(ip))
+            {
+                ip = HttpContext.Current.Request.ServerVariables["REMOTE_ADDR"];
+            }
+
+            return ip;
         }
     }
 }

@@ -17,7 +17,14 @@ namespace SharedSource.RedirectModule
             public static string QueryExactMatch = "SharedSource.RedirectModule.QueryType.ExactMatch";
             public static string QueryPatternMatch = "SharedSource.RedirectModule.QueryType.PatternMatch";
             public static string RedirectRootNode = "SharedSource.RedirectModule.RedirectRootNode";
-
+            public static string MaxMindUserId = "SharedSource.RedirectModule.MaxMindWebServiceUserID";
+            public static string MaxMindLicenseKey = "SharedSource.RedirectModule.MaxMindWebServiceLicenseKey";
+            public static string MaxMindType = "SharedSource.RedirectModule.MaxMindType";
+            public static string MaxMindDatabasePath = "SharedSource.RedirectModule.MaxMindDatabasePath";
+            public static string ExternalHosts = "SharedSource.RedirectModule.ExternalHosts";
+            public static string MaxCacheSize = "SharedSource.RedirectModule.MaxCacheSize";
+            public static string ExternalHostsNotFoundUrl = "SharedSource.RedirectModule.ExternalHosts.NotFoundUrl";
+            
         }
         public static class Templates
         { 
@@ -35,9 +42,11 @@ namespace SharedSource.RedirectModule
             public static string RedirectToUrl = "redirect to url";
             public static string RequestedExpression = "requested expression";
             public static string SourceItem = "source item";
+            public static string RelativeDestinationPath = "Redirect To Relative Destination Path";
             public static string ItemProcessRedirects = "Items Which Always Process Redirects";
             public static string ResponseStatusCode = "Response Status Code";
             public static string StatusCode = "Status Code";
+			public static string RedirectCode = "Continent or Country Code";
         }
 
     }
